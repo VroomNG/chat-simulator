@@ -19,8 +19,8 @@ function App() {
   const [mute, setMute] = useState(false);
 
   const userid = queryParameters.get('userid');
-  // const callee_id = queryParameters.get('riderid');
-  const callee_id = '87cfd699-8525-4316-a3d2-63ca55f8b152';
+  const callee_id = queryParameters.get('riderid');
+  // const callee_id = '87cfd699-8525-4316-a3d2-63ca55f8b152';
   const appid = '0ECAC80D-9CF2-491B-AA64-A5BF65B416AD';
   const sbc = SendBirdCall;
   const uniqueId = Math.random().toString(36).slice(2);
@@ -28,6 +28,7 @@ function App() {
   // Create refs for the local and remote video elements
   const localVideoRef = useRef<HTMLVideoElement | any>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | any>(null);
+  const audioOutputRef = useRef<HTMLAudioElement | any>(null);
 
   useEffect(() => {
     const initializeSendBird = async () => {
@@ -67,7 +68,22 @@ function App() {
 
               // call.onEnded = (call) => {
               //   console.log('Call ended', call);
+              //   setCurrentCall(null);
+              //   setIncomingCall(null);
+              //   setOutgoing(false);
+              //   setOngoing(false);
+              //   setToggleSpeaker(false);
+              //   setMute(false);
+              //   setRinging(false);
               // };
+
+              call.onReconnecting = (call) => {
+                console.log('Call reconnecting', call);
+             };
+            
+              call.onReconnected = (call) => {
+                console.log('Call reconnected', call);
+              };
 
               // Accept the call
               // call.accept({
@@ -78,6 +94,9 @@ function App() {
               //     videoEnabled: call.isVideoCall,
               //   },
               // });
+
+               // Ensure the remote media view is set for the incoming call
+               call.setRemoteMediaView(remoteVideoRef.current);
               
             },
           });
@@ -93,7 +112,7 @@ function App() {
   }, [userid, appid, sbc]);
 
   const startCall = (calleeId: any, isVideoCall: boolean) => {
-    console.log('Starting call with', calleeId, isVideoCall);
+    // console.log('Starting call with', calleeId, isVideoCall);
 
     const dialParams = {
       userId: calleeId,
@@ -121,23 +140,41 @@ function App() {
       }
     });
 
+
     // Add ringing event listener
-    call.onEstablished = () => {
-      console.log('Call established');
-      
+    currentCall.onEstablished = (call:any) => {
+      console.log('Call established',call);
+      setRinging(true)
     };
 
-      call.onConnected = () => {
-        console.log('Call connected');
-        // setRinging(true)
-      };
-    };
+    currentCall.onConnected = (call:any) => {
+        console.log('Call connected'),call;
+        setRinging(true)
+   };
+
+  call.onRemoteAudioSettingsChanged = (call:any) => {
+      console.log('Remote user changed audio settings',call);
+  };    
+  call.onRemoteVideoSettingsChanged = (call:any) => {
+      console.log('Remote user changed video settings',call);
+  };
+    // Ensure the remote media view is set for the outgoing call
+    call.setRemoteMediaView(remoteVideoRef.current);
+  }
     
 
   const acceptCall = () => {
-    if (currentCall) {
-      currentCall.accept();
-      console.log('Call accepted', currentCall);
+    if (incomingCall) {
+      // incomingCall.accept();
+      incomingCall.accept({
+          callOption: {
+            localMediaView: localVideoRef.current!,
+            remoteMediaView: remoteVideoRef.current!,
+            audioEnabled: true,
+            videoEnabled: incomingCall.isVideoCall,
+          },
+        });
+      console.log('Call accepted', incomingCall);
       setOngoing(true)
     } else {
       console.log('no current call')
@@ -156,33 +193,55 @@ function App() {
   };
 
   const endCall = () => {
-    if (currentCall) {
-      currentCall.end();
-      setCurrentCall(null);
-      setOutgoing(false);
-      setToggleSpeaker(false)
-      setMute(false)
-      console.log('Call ended by user', currentCall);
+    if (incomingCall) {
+      incomingCall.end();
+      console.log('Call ended');
+      setIncomingCall(null);
+      setIncoming(false);
+    } else {
+      console.log('call ended by user')
     }
   };
-  const toggleSpeakerFunc = () => {
-    setToggleSpeaker(!toggleSpeaker)
-    console.log(toggleSpeaker)
-  }
-  const toggleMute = () => {
-    setMute(previous => !previous)
-    console.log(mute)
-  }
+  const toggleSpeakerFunc = async () => {
+    setToggleSpeaker(!toggleSpeaker);
+    if (audioOutputRef.current && audioOutputRef.current.setSinkId) {
+      try {
+        await remoteVideoRef.current.setSinkId(toggleSpeaker ? 'default' : 'speaker');
+        console.log(`Audio output set to ${toggleSpeaker ? 'default' : 'speaker'}`);
+      } catch (error) {
+        console.error('Error setting audio output device:', error);
+      }
+    } else {
+      console.warn('setSinkId is not supported by this browser.');
+    }
+  };
 
-  
+  const toggleMute = () => {
+    setMute(prevMute => {
+      const newMute = !prevMute;
+      if (currentCall) {
+        if (newMute) {
+          currentCall.muteMicrophone();
+          console.log('Muted');
+        } else {
+          currentCall.unmuteMicrophone();
+          console.log('Unmuted');
+        }
+      }
+      return newMute;
+    });
+  };
+
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
       {authenticated && (
         <div>
-          <button onClick={() => startCall(callee_id, false)}>
+          <button onClick={() => startCall(callee_id, false)} 
+           style={{border:'1px solid white', marginRight:'5px', marginLeft:'5px'}}>
             <i className='fa fa-phone' style={{ fontSize: '24px',color: 'purple', }}></i>
           </button>
-          <button onClick={() => startCall(callee_id, true)}>
+          <button onClick={() => startCall(callee_id, true)}
+           style={{border:'1px solid white', marginRight:'5px', marginLeft:'5px'}}>
           <i className='fa fa-video' style={{ fontSize: '24px',color: 'purple', }}></i>
           </button>
           {outgoing && (
@@ -203,7 +262,7 @@ function App() {
                   </button>
                  
                   <button  onClick={()=>toggleMute()} style={{ backgroundColor: mute ? 'white' : 'black' }}>
-                    <i className='fa fa-microphone-slash' style={{ fontSize: '20px', color: mute ? 'black' : 'white' }}></i>
+                    <i className={`fa fa-${mute ? 'microphone-slash' : 'microphone'}`} style={{ fontSize: '20px', color: mute ? 'black' : 'white' }}></i>
                   </button>
                   
                   <button onClick={()=>endCall()} style={{backgroundColor: 'red'}}>
@@ -271,6 +330,9 @@ function App() {
 
         </div>
       )}
+        <video id="local_video_element_id" ref={localVideoRef} autoPlay muted></video>
+        <video id="remote_video_element_id" ref={remoteVideoRef} autoPlay></video>
+        <audio id="audio_output_element_id" ref={audioOutputRef} autoPlay></audio>
       <SendbirdApp appId={appid} userId={`${userid}`} />
     </div>
   );
